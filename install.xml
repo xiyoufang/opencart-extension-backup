@@ -1,0 +1,131 @@
+<modification>
+    <name>Extension Backup for OpenCart 3.x</name>
+    <code>Extension Backup for OpenCart 3.x</code>
+    <version>1.0</version>
+    <author>xiyoufang</author>
+    <link>https://github.com/xiyoufang</link>
+
+    <file path="admin/controller/marketplace/install.php">
+        <operation>
+            <search><![CDATA[public function uninstall() {]]></search>
+            <add position="before"><![CDATA[
+            public function backup() {
+                $this->load->language('marketplace/install');
+
+                $json = array();
+
+                if (isset($this->request->get['extension_install_id'])) {
+                    $extension_install_id = $this->request->get['extension_install_id'];
+                } else {
+                    $extension_install_id = 0;
+                }
+
+                if (!$this->user->hasPermission('modify', 'marketplace/install')) {
+                    $json['error'] = $this->language->get('error_permission');
+                }
+
+                if (!$json) {
+                    $this->load->model('setting/extension');
+
+                    $query = $this->db->query("SELECT * FROM `" . DB_PREFIX . "extension_install` WHERE `extension_install_id` = '" . (int)$extension_install_id . "'");
+
+                    $extension = $query->row;
+
+                    if (!$extension){
+                        exit("not found extension <$extension_install_id>\n");
+                    }
+
+                    $results = $this->model_setting_extension->getExtensionPathsByExtensionInstallId($extension_install_id);
+
+                    rsort($results);
+
+                    $sources = array();
+
+                    foreach ($results as $result) {
+                        $source = '';
+
+                        // Check if the copy location exists or not
+                        if (substr($result['path'], 0, 5) == 'admin') {
+                            $source = DIR_APPLICATION . substr($result['path'], 6);
+                        }
+
+                        if (substr($result['path'], 0, 7) == 'catalog') {
+                            $source = DIR_CATALOG . substr($result['path'], 8);
+                        }
+
+                        if (substr($result['path'], 0, 5) == 'image') {
+                            $source = DIR_IMAGE . substr($result['path'], 6);
+                        }
+
+                        if (substr($result['path'], 0, 14) == 'system/library') {
+                            $source = DIR_SYSTEM . 'library/' . substr($result['path'], 15);
+                        }
+                        $sources[] = array('type'=> 0, 'path' => 'upload/'.$result['path'] , 'source' => $source);
+                    }
+
+                    $this->load->model('setting/modification');
+
+                    $query = $this->db->query("SELECT * FROM `" . DB_PREFIX . "modification` WHERE `extension_install_id` = '" . (int)$extension_install_id . "'");
+
+                    if ($query->row){
+                        $xml = $query->row['xml'];
+                        $sources[] =  array('type'=> 1, 'path' => 'install.xml' , 'source' => $xml);
+                    }
+
+                    $json['success'] = $this->language->get('text_success');
+                    $zip = new ZipArchive();
+                    $tmp = tempnam(sys_get_temp_dir(), 'extension_backup');
+                    if ($zip->open($tmp, ZIPARCHIVE::CREATE )!==TRUE) exit("cannot open <$tmp>\n");
+                    foreach($sources as $source) {
+                        if ($source['type'] == 0){
+                            if(!is_dir($source['source']) && is_file($source['source'])){
+                                $zip->addFile($source['source'], $source['path']);
+                            }
+                        }
+                        else{
+                            $zip->addFromString($source['path'], $xml);
+                        }
+                    }
+                    $zip->close();
+                    header("Content-type: application/zip");
+                    header("Content-Disposition: attachment; filename=".$extension['filename']);
+                    header("Content-length: " . filesize($tmp));
+                    header("Pragma: no-cache");
+                    header("Expires: 0");
+                    readfile($tmp);
+                }
+                else{
+                    $this->response->addHeader('Content-Type: application/json');
+                    $this->response->setOutput(json_encode($json));
+                }
+            }
+			]]></add>
+        </operation>
+    </file>
+    <file path="admin/controller/marketplace/installer.php">
+        <operation>
+            <search><![CDATA[$history_total = $this->model_setting_extension->getTotalExtensionInstalls();]]></search>
+            <add position="after"><![CDATA[
+            $data['user_token'] = $this->session->data['user_token'];
+			]]></add>
+        </operation>
+    </file>
+
+    <file path="admin/view/template/marketplace/installer_history.twig">
+        <operation>
+            <search><![CDATA[<td class="text-right"><button type="button" value="{{ history.extension_install_id }}" data-loading="{{ text_loading }}" data-toggle="tooltip" title="{{ button_uninstall }}" class="btn btn-danger"><i class="fa fa-trash-o"></i></button></td>]]></search>
+            <add position="replace"><![CDATA[<td class="text-right"><a href="index.php?route=marketplace/install/backup&user_token={{ user_token }}&extension_install_id={{ history.extension_install_id }}" class="btn btn-success"><i class="fa fa-download"></i></a>
+            <button type="button" value="{{ history.extension_install_id }}" data-loading="{{ text_loading }}" data-toggle="tooltip" title="{{ button_uninstall }}" class="btn btn-danger"><i class="fa fa-trash-o"></i></button></td>]]></add>
+        </operation>
+    </file>
+
+    <file path="system/library/template/twig.php">
+        <operation>
+            <search><![CDATA[ $file = DIR_TEMPLATE . $filename . '.twig'; ]]></search>
+            <add position="replace"><![CDATA[
+           	$file = modification( DIR_TEMPLATE . $filename . '.twig' );
+			]]></add>
+        </operation>
+    </file>
+
+</modification>
